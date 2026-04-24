@@ -4,6 +4,8 @@
 #define Zaxis ConnectorM2
 #define CcioPort ConnectorCOM0
 #define baudRate 115200
+// Supported adcResolution values are 8, 10, and 12
+#define adcResolution 10
 
 // decided to use 0.1mm (decimillimeter) as the standard unit to avoid floats where possible
 #define Z_STEPS_PER_DMM 16
@@ -27,7 +29,7 @@
 // #define beam1Pin CLEARCORE_PIN_IO2 // TEMPORARY
 #define EstopPin CLEARCORE_PIN_A9 // connected to actual, normally closed, active low circuit
 #define spindle1RPMPin CLEARCORE_PIN_A10      // provides feedback on actual speed, RPM=2*P/N*60 where N=# poles, P=input freq (Hz)
-#define manifoldPressure CLEARCORE_PIN_A12  // 4-20 mA corresponds to 0-100 psi
+#define manifoldPressurePin CLEARCORE_PIN_A12  // 4-20 mA corresponds to 0-100 psi
 uint8_t ccioBoardCount;  // Store the number of connected CCIO-8 boards here.
 uint8_t ccioPinCount;    // Store the number of connected CCIO-8 pins here.
 // first CCIO (control cabinet):
@@ -40,15 +42,15 @@ uint8_t ccioPinCount;    // Store the number of connected CCIO-8 pins here.
 #define redMastPin CLEARCORE_PIN_CCIOA6
 #define buzzMastPin CLEARCORE_PIN_CCIOA7
 // second CCIO (pneumatics):
-// int32_t clampPins[] = {CLEARCORE_PIN_CCIOB0, CLEARCORE_PIN_CCIOB1, CLEARCORE_PIN_CCIOB2, CLEARCORE_PIN_CCIOB3, CLEARCORE_PIN_CCIOB4, CLEARCORE_PIN_CCIOB5, CLEARCORE_PIN_CCIOB6, CLEARCORE_PIN_CCIOB7};
-#define clamp1Pin CLEARCORE_PIN_CCIOB0
-#define clamp2Pin CLEARCORE_PIN_CCIOB1
-#define clamp3Pin CLEARCORE_PIN_CCIOB2
-#define clamp4Pin CLEARCORE_PIN_CCIOB3
-#define clamp5Pin CLEARCORE_PIN_CCIOB4
-#define clamp6Pin CLEARCORE_PIN_CCIOB5
-#define clamp7Pin CLEARCORE_PIN_CCIOB6
-#define clamp8Pin CLEARCORE_PIN_CCIOB7
+int32_t clampPins[] = {CLEARCORE_PIN_CCIOB0, CLEARCORE_PIN_CCIOB1, CLEARCORE_PIN_CCIOB2, CLEARCORE_PIN_CCIOB3, CLEARCORE_PIN_CCIOB4, CLEARCORE_PIN_CCIOB5, CLEARCORE_PIN_CCIOB6, CLEARCORE_PIN_CCIOB7};
+// #define clamp1Pin CLEARCORE_PIN_CCIOB0
+// #define clamp2Pin CLEARCORE_PIN_CCIOB1
+// #define clamp3Pin CLEARCORE_PIN_CCIOB2
+// #define clamp4Pin CLEARCORE_PIN_CCIOB3
+// #define clamp5Pin CLEARCORE_PIN_CCIOB4
+// #define clamp6Pin CLEARCORE_PIN_CCIOB5
+// #define clamp7Pin CLEARCORE_PIN_CCIOB6
+// #define clamp8Pin CLEARCORE_PIN_CCIOB7
 // third CCIO (machine sensors):
 #define laser1Pin CLEARCORE_PIN_CCIOC0 // laser emitters
 #define laser2Pin CLEARCORE_PIN_CCIOC1
@@ -58,6 +60,20 @@ uint8_t ccioPinCount;    // Store the number of connected CCIO-8 pins here.
 #define beam3Pin CLEARCORE_PIN_CCIOC5
 #define beam2Pin CLEARCORE_PIN_CCIOC6
 #define beam1Pin CLEARCORE_PIN_CCIOC7
+// function wrappers for readability
+constexpr size_t CLAMP_COUNT = sizeof(clampPins) / sizeof(clampPins[0]);
+inline void clamp(int index, bool state) {
+	if(index < 1 || index >= CLAMP_COUNT+1) return; // is that right?
+	digitalWrite(clampPins[index-1], state);
+}
+void laser1(bool s) {digitalWrite(laser1Pin, s);}
+void laser2(bool s) {digitalWrite(laser2Pin, s);}
+void laser3(bool s) {digitalWrite(laser3Pin, s);}
+void laser4(bool s) {digitalWrite(laser4Pin, s);}
+bool beam1() {return digitalRead(beam1Pin);}
+bool beam2() {return digitalRead(beam2Pin);}
+bool beam3() {return digitalRead(beam3Pin);}
+bool beam4() {return digitalRead(beam4Pin);}
 
 // SASH OFFSETS (everything in counts)
 #define beam1Offset 
@@ -99,8 +115,9 @@ int zVelLim = 15000;     // pulses per sec
 int zAccelLim = 1000000;  // pulses per sec^2
 bool dir = 0; // for spindle test
 
-// Declares user-defined helper functions.
+// Declares user-defined helper functions (prototypes).
 // The definition/implementations of these functions are at the bottom of the sketch.
+void clampManager();
 void drillSashEnd1();
 void drillSashEndRev();
 void drillPeck();
@@ -112,10 +129,10 @@ void spindleTest();
 bool XMoveAtVelocity(int32_t velocity);
 bool XMoveDistance(int distance);
 bool XMoveAbsolutePosition(int position);
-bool YMoveAtVelocity(int32_t velocity);
+// bool YMoveAtVelocity(int32_t velocity);
 bool YMoveDistance(int distance);
 bool YMoveAbsolutePosition(int position);
-bool ZMoveAtVelocity(int32_t velocity);
+// bool ZMoveAtVelocity(int32_t velocity);
 bool ZMoveDistance(int distance);
 bool ZMoveAbsolutePosition(int position);
 void PrintAlerts();
@@ -126,8 +143,8 @@ void setupMotors();
 void enableX();
 void homeY();
 void homeZ();
+double readAirPressure();
 void setupPins();
-void clamp();
 // TODO: find out if there's actually any advantage to declaring these at the top of the sketch
 
 void setup() {
@@ -161,10 +178,16 @@ void setup() {
 	digitalWrite(yellowMastPin, LOW);
 	digitalWrite(greenMastPin, HIGH);  // turns on green "power" light
 
+	// for (int i=1; i<=8; i++) { // tests solenoids
+	// 	clamp(i,1);
+	// 	delay(500);
+	// 	clamp(i,0);
+	// }
 	// while(true) { // don't go on to loop for now
 	// 	digitalWrite(redMastPin, !digitalRead(EstopPin));
 	// 	// Serial.println(digitalRead(EstopPin));
-	// 	delay(10);
+	// 	readAirPressure();
+	// 	delay(1000);
 	// }
 
 	// Begin a 100ms on/200ms off pulse on the first CCIO-8 board's
@@ -181,7 +204,7 @@ void loop() {
 	XMoveAbsolutePosition(1000); // 100mm, should be past laser
 	revHomeStick();
 	drillSashEndRev();
-	while (digitalRead(beam2Pin)) { // TODO: make use of InputRisen() or fallen
+	while (digitalRead(beam2Pin)) { // TODO: make use of InputRisen() or fallen?
 		Xaxis.MoveVelocity(4000*8);
 	}
 	Xaxis.VelMax(2000*8); // safe speed? don't want to launch stick
@@ -191,7 +214,10 @@ void loop() {
 	CcioMgr.PinByIndex(buzzMastPin)->OutputPulsesStart(250, 250, 1, false);
 	delay(1000);
 }
+// run this anytime X-axis is moving to coordinate clamping
+void clampManager() {
 
+}
 
 void drillSashEnd1() {
 	int Yoffset1 = 240; // DMM from Y home to middle of hardware track
@@ -385,7 +411,8 @@ void spindleTest() {
  *
  * Returns: True/False depending on whether the move was successfully triggered.
  */
-bool XMoveAtVelocity(int velocity) {
+bool XMoveAtVelocity(int velocityDMM) {
+	int velocity = round(velocityDMM*X_STEPS_PER_DMM); // round to nearest count/s cause pi
 	// Check if a motor alert is currently preventing motion
 	// Clear alert if configured to do so
 	if (Xaxis.StatusReg().bit.AlertsPresent) {
@@ -417,74 +444,74 @@ bool XMoveAtVelocity(int velocity) {
 	Serial.println("At Speed");
 	return true;
 }
-bool YMoveAtVelocity(int velocity) {
-	// Check if a motor alert is currently preventing motion
-	// Clear alert if configured to do so
-	if (Yaxis.StatusReg().bit.AlertsPresent) {
-		Serial.println("Y Motor alert detected.");
-		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsY();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
-		Serial.println("Y Move canceled.");
-		Serial.println();
-		return false;
-	}
+// bool YMoveAtVelocity(int velocity) {
+// 	// Check if a motor alert is currently preventing motion
+// 	// Clear alert if configured to do so
+// 	if (Yaxis.StatusReg().bit.AlertsPresent) {
+// 		Serial.println("Y Motor alert detected.");
+// 		PrintAlerts();
+// 		if (HANDLE_ALERTS) {
+// 			HandleAlertsY();
+// 		} else {
+// 			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+// 		}
+// 		Serial.println("Y Move canceled.");
+// 		Serial.println();
+// 		return false;
+// 	}
 
-	Serial.print("Y Moving at velocity: ");
-	Serial.println(velocity);
+// 	Serial.print("Y Moving at velocity: ");
+// 	Serial.println(velocity);
 
-	// Command the velocity move
-	Yaxis.MoveVelocity(velocity);
+// 	// Command the velocity move
+// 	Yaxis.MoveVelocity(velocity);
 
-	// Waits for the step command to ramp up/down to the commanded velocity.
-	// This time will depend on your Acceleration Limit.
-	Serial.println("Ramping to speed...");
-	while (!Yaxis.StatusReg().bit.AtTargetVelocity) {
-		continue;
-	}
+// 	// Waits for the step command to ramp up/down to the commanded velocity.
+// 	// This time will depend on your Acceleration Limit.
+// 	Serial.println("Ramping to speed...");
+// 	while (!Yaxis.StatusReg().bit.AtTargetVelocity) {
+// 		continue;
+// 	}
 
-	Serial.println("At Speed");
-	return true;
-}
-bool ZMoveAtVelocity(int velocity) {
-	// Check if a motor alert is currently preventing motion
-	// Clear alert if configured to do so
-	if (Zaxis.StatusReg().bit.AlertsPresent) {
-		Serial.println("Z Motor alert detected.");
-		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsZ();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
-		Serial.println("Z Move canceled.");
-		Serial.println();
-		return false;
-	}
+// 	Serial.println("At Speed");
+// 	return true;
+// }
+// bool ZMoveAtVelocity(int velocity) {
+// 	// Check if a motor alert is currently preventing motion
+// 	// Clear alert if configured to do so
+// 	if (Zaxis.StatusReg().bit.AlertsPresent) {
+// 		Serial.println("Z Motor alert detected.");
+// 		PrintAlerts();
+// 		if (HANDLE_ALERTS) {
+// 			HandleAlertsZ();
+// 		} else {
+// 			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+// 		}
+// 		Serial.println("Z Move canceled.");
+// 		Serial.println();
+// 		return false;
+// 	}
 
-	Serial.print("Z Moving at velocity: ");
-	Serial.println(velocity);
+// 	Serial.print("Z Moving at velocity: ");
+// 	Serial.println(velocity);
 
-	// Command the velocity move
-	Zaxis.MoveVelocity(velocity);
+// 	// Command the velocity move
+// 	Zaxis.MoveVelocity(velocity);
 
-	// Waits for the step command to ramp up/down to the commanded velocity.
-	// This time will depend on your Acceleration Limit.
-	Serial.println("Ramping to speed...");
-	while (!Zaxis.StatusReg().bit.AtTargetVelocity) {
-		continue;
-	}
+// 	// Waits for the step command to ramp up/down to the commanded velocity.
+// 	// This time will depend on your Acceleration Limit.
+// 	Serial.println("Ramping to speed...");
+// 	while (!Zaxis.StatusReg().bit.AtTargetVelocity) {
+// 		continue;
+// 	}
 
-	Serial.println("At Speed");
-	return true;
-}
+// 	Serial.println("At Speed");
+// 	return true;
+// }
 //------------------------------------------------------------------------------
 
 
-// TODO change move functions to take DMM units
+// move functions now take DMM units
 /*------------------------------------------------------------------------------
  * XMoveDistance
  *
@@ -498,7 +525,8 @@ bool ZMoveAtVelocity(int velocity) {
  *
  * Returns: True/False depending on whether the move was successfully triggered.
  */
-bool XMoveDistance(int distance) {
+bool XMoveDistance(int distanceDMM) { // not for use for precise positioning due to rounding
+	int distance = round(distanceDMM*X_STEPS_PER_DMM); // round to nearest count cause pi
 	// Check if a motor alert is currently preventing motion
 	// Clear alert if configured to do so
 	if (Xaxis.StatusReg().bit.AlertsPresent) {
@@ -543,7 +571,8 @@ bool XMoveDistance(int distance) {
 		return true;
 	}
 }
-bool YMoveDistance(int distance) {
+bool YMoveDistance(int distanceDMM) {
+	int distance = distanceDMM*Y_STEPS_PER_DMM;
 	// Check if a motor alert is currently preventing motion
 	// Clear alert if configured to do so
 	if (Yaxis.StatusReg().bit.AlertsPresent) {
@@ -588,7 +617,8 @@ bool YMoveDistance(int distance) {
 		return true;
 	}
 }
-bool ZMoveDistance(int distance) {
+bool ZMoveDistance(int distanceDMM) {
+	int distance = distanceDMM*Z_STEPS_PER_DMM;
 	// Check if a motor alert is currently preventing motion
 	// Clear alert if configured to do so
 	if (Zaxis.StatusReg().bit.AlertsPresent) {
@@ -636,7 +666,7 @@ bool ZMoveDistance(int distance) {
 //------------------------------------------------------------------------------
 
 
-// BIG CHANGE now absolute move functions take DMM units
+// absolute move functions take DMM units
 /*------------------------------------------------------------------------------
  * XMoveAbsolutePosition
  *
@@ -919,7 +949,21 @@ void HandleAlertsZ() {
 	Zaxis.ClearAlerts();
 }
 //------------------------------------------------------------------------------
-
+double readAirPressure() {
+	// int adcResult = analogRead(manifoldPressurePin);
+	// double inputVoltage = 10.0 * adcResult / ((1 << adcResolution) - 1);
+	double inputVoltage = analogRead(manifoldPressurePin, MILLIVOLTS) / 1000.0;
+	// reads <2V@0psi, 4.5V@30psi, 7.1V@60psi, 9.8V@100psi
+	// double manifoldPressure = map(inputVoltage, 4.50, 7.10, 30.00, 60.00);
+	double manifoldPressure = (inputVoltage - 4.50) * (60.0 - 30.0) / (7.10 - 4.50) + 30.0;
+	if (inputVoltage < 2) {
+		manifoldPressure = 0;
+	}
+	Serial.print("Manifold pressure: ");
+	Serial.print(manifoldPressure, 1);
+	Serial.println(" psi");
+	return manifoldPressure;
+}
 void setupMotors() {
 	// Sets the input clocking rate. This normal rate is ideal for ClearPath
 	// step and direction applications.
@@ -964,7 +1008,6 @@ void setupMotors() {
 	// enable X axis
 	enableX();
 }
-
 void enableX() {
 	Xaxis.EnableRequest(true);
 	Serial.println("X-axis enabled");
@@ -1047,6 +1090,7 @@ void homeZ() {
 	}
 }
 void setupPins() {
+	analogReadResolution(adcResolution);
 	// Set up the CCIO-8 COM port.
 	CcioPort.Mode(Connector::CCIO);
 	CcioPort.PortOpen();
@@ -1067,7 +1111,7 @@ void setupPins() {
 	// TODO: send error message if incorrect number of boards is discovered
 	// Set each CCIO-8 pin to the correct mode. The CCIO-8 pins default to
   // being an input so the pin mode doesn't need to be set for input mode.
-	for (uint8_t i = 0; i < sizeof(clampPins)/sizeof(clampPins[0]; i++)) {
+	for (int i = 0; i < sizeof(clampPins)/sizeof(clampPins[0]); i++) {
 		pinMode(clampPins[i], OUTPUT);
 	}
 	// pinMode(clamp1Pin, OUTPUT);
