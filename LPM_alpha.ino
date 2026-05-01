@@ -75,6 +75,15 @@ bool beam2() {return digitalRead(beam2Pin);}
 bool beam3() {return digitalRead(beam3Pin);}
 bool beam4() {return digitalRead(beam4Pin);}
 
+enum MotionState {
+    IDLE,
+    MOVING,
+    PAUSED_ESTOP,
+    PAUSED_PRESSURE,
+		PAUSED_MOTOR_FAULT
+};
+MotionState motionState = IDLE;
+
 // SASH OFFSETS (everything in counts)
 #define beam1Offset 
 // entering wheels to laser 1: 2848
@@ -685,7 +694,7 @@ bool XMoveAbsolutePosition(int positionDMM) {
 	int position = round(positionDMM*X_STEPS_PER_DMM); // round to nearest count cause pi
 	// Check if a motor alert is currently preventing motion
 	// Clear alert if configured to do so
-	if (Xaxis.StatusReg().bit.AlertsPresent) {
+	if (motorFaultPresent()) {
 		Serial.println("X Motor alert detected.");
 		PrintAlerts();
 		if (HANDLE_ALERTS) {
@@ -897,9 +906,13 @@ void PrintAlerts() { // handles all motors
 }
 //------------------------------------------------------------------------------
 
-
+// somewhere: if(motorFaultPresent) {MotionState = PAUSED_MOTOR_FAULT;}
+bool motorFaultPresent() {
+	return Xaxis.StatusReg().bit.AlertsPresent || Yaxis.StatusReg().bit.AlertsPresent || Zaxis.StatusReg().bit.AlertsPresent;
+}
+// should move this stuff to function for clearing an alert
 /*------------------------------------------------------------------------------
- * HandleAlerts
+ * HandleAlertsX
  *
  *    Clears alerts, including motor faults. 
  *    Faults are cleared by cycling enable to the motor.
@@ -924,6 +937,19 @@ void HandleAlertsX() {
 	Serial.println("Clearing alerts.");
 	Xaxis.ClearAlerts();
 }
+/*------------------------------------------------------------------------------
+ * HandleAlertsY
+ *
+ *    Clears alerts, including motor faults. 
+ *    Faults are cleared by cycling enable to the motor.
+ *    Alerts are cleared by clearing the ClearCore alert register directly.
+ *
+ * Parameters:
+ *    requires "motor" to be defined as a ClearCore motor connector
+ *
+ * Returns: 
+ *    none
+ */
 void HandleAlertsY() {
 	if (Yaxis.AlertReg().bit.MotorFaulted) {
 		// if a motor fault is present, clear it by cycling enable
@@ -936,6 +962,19 @@ void HandleAlertsY() {
 	Serial.println("Clearing alerts.");
 	Yaxis.ClearAlerts();
 }
+/*------------------------------------------------------------------------------
+ * HandleAlertsZ
+ *
+ *    Clears alerts, including motor faults. 
+ *    Faults are cleared by cycling enable to the motor.
+ *    Alerts are cleared by clearing the ClearCore alert register directly.
+ *
+ * Parameters:
+ *    requires "motor" to be defined as a ClearCore motor connector
+ *
+ * Returns: 
+ *    none
+ */
 void HandleAlertsZ() {
 	if (Zaxis.AlertReg().bit.MotorFaulted) {
 		// if a motor fault is present, clear it by cycling enable
