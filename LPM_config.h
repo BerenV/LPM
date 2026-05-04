@@ -9,12 +9,21 @@
 #define Z_STEPS_PER_DMM 16
 #define Y_STEPS_PER_DMM 16
 #define X_STEPS_PER_DMM 2.67346886
-#define TOOL_OFFSET (250 * Z_STEPS_PER_DMM)
-#define Z_HOME_OFFSET 11570
-#define Y_HOME_OFFSET 200
-#define LASER1_OFFSET 640
+
+// --- Motor-count calibration (use as-is with *StartCounts / distance moves; do NOT × STEPS_PER_DMM) ---
+#define Y_HOME_OFFSET_COUNTS 200    // Y: encoder counts from machine home to roller edge
+#define Z_HOME_OFFSET_COUNTS 11570   // Z: counts from home to collet aligned with lower rollers
+#define TOOL_OFFSET_COUNTS (250 * Z_STEPS_PER_DMM) // tip-to-collet in counts (250 DMM × spr)
+
+// Legacy aliases (same values — older helpers confused “DMM” parameter names with count offsets)
+#define Y_HOME_OFFSET Y_HOME_OFFSET_COUNTS
+#define Z_HOME_OFFSET Z_HOME_OFFSET_COUNTS
+#define TOOL_OFFSET TOOL_OFFSET_COUNTS
+
+#define LASER1_OFFSET 640 // counts (beam / mechanical calibration)
 #define SPINDLE_CURR 2000
 #define DRILL_Z_VELOCITY 500
+// Program coordinates in DMM (0.1 mm); multiply by *_STEPS_PER_DMM for counts when needed
 #define Z_PARK (-50)
 #define SASH_OFFSET (-231)
 #define REV_SASH_OFFSET 63

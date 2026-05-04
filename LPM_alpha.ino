@@ -352,16 +352,15 @@ void setupMotors() {
 	// home Y axis last
 	homeY();
 	delay(1000);
-	// Move to application homes — same StartCounts + poll pattern as LPM_machine.cpp (not the old blocking helpers).
+	// Move to application homes — offsets Y_HOME/Z_HOME/TOOL are stored as counts; Z_PARK is DMM.
 	{
-		int32_t yCounts = (int32_t)(Y_HOME_OFFSET * Y_STEPS_PER_DMM);
-		if (YMoveDistanceStartCounts(yCounts)) {
+		if (YMoveDistanceStartCounts((int32_t)Y_HOME_OFFSET_COUNTS)) {
 			waitAxisMoveComplete(Yaxis);
 		}
 		Yaxis.PositionRefSet(0);
 
-		int32_t zCounts = (int32_t)((Z_HOME_OFFSET - TOOL_OFFSET) * Z_STEPS_PER_DMM);
-		if (ZMoveDistanceStartCounts(zCounts)) {
+		int32_t zDeltaCounts = (int32_t)Z_HOME_OFFSET_COUNTS - (int32_t)TOOL_OFFSET_COUNTS;
+		if (ZMoveDistanceStartCounts(zDeltaCounts)) {
 			waitAxisMoveComplete(Zaxis);
 		}
 		Zaxis.PositionRefSet(0);
