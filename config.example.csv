@@ -1,0 +1,3 @@
+# Copy to config.csv on the SD card (optional). Lines are key=value.
+pressure_min_psi=25
+beam1_rough_ref_counts=0
