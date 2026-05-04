@@ -1,4 +1,8 @@
 #include "ClearCore.h"
+#include <SPI.h>
+#include <SD.h>
+File configSD;
+
 #define Xaxis ConnectorM0
 #define Yaxis ConnectorM1
 #define Zaxis ConnectorM2
@@ -6,7 +10,6 @@
 #define baudRate 115200
 // Supported adcResolution values are 8, 10, and 12
 #define adcResolution 10
-
 // decided to use 0.1mm (decimillimeter) as the standard unit to avoid floats where possible
 #define Z_STEPS_PER_DMM 16
 #define Y_STEPS_PER_DMM 16
@@ -29,7 +32,7 @@
 // #define beam1Pin CLEARCORE_PIN_IO2 // TEMPORARY
 #define EstopPin CLEARCORE_PIN_A9 // connected to actual, normally closed, active low circuit
 #define spindle1RPMPin CLEARCORE_PIN_A10      // provides feedback on actual speed, RPM=2*P/N*60 where N=# poles, P=input freq (Hz)
-#define manifoldPressurePin CLEARCORE_PIN_A12  // 4-20 mA corresponds to 0-100 psi
+#define manifoldPressurePin CLEARCORE_PIN_A12  // 4-20 mA (2-10V) corresponds to 0-100 psi
 uint8_t ccioBoardCount;  // Store the number of connected CCIO-8 boards here.
 uint8_t ccioPinCount;    // Store the number of connected CCIO-8 pins here.
 // first CCIO (control cabinet):
@@ -109,7 +112,7 @@ MotionState motionState = IDLE;
 //	your system will not enter an unsafe state.
 // To enable automatic alert handling, #define HANDLE_ALERTS (1)
 // To disable automatic alert handling, #define HANDLE_ALERTS (0)
-#define HANDLE_ALERTS (0)
+// #define HANDLE_ALERTS (0)
 
 // These will be used to format the text that is printed to the serial port.
 #define MAX_MSG_LEN 80
@@ -123,6 +126,7 @@ int yAccelLim = 1000000;  // pulses per sec^2
 int zVelLim = 15000;     // pulses per sec
 int zAccelLim = 1000000;  // pulses per sec^2
 bool dir = 0; // for spindle test
+double manifoldPressure = 0.0; // psi
 
 // Declares user-defined helper functions (prototypes).
 // The definition/implementations of these functions are at the bottom of the sketch.
@@ -159,15 +163,15 @@ void setupPins();
 void setup() {
 	// Sets up serial communication and waits up to "timeout" seconds for a port to open.
 	Serial.begin(baudRate);
-	uint32_t timeout = 1000;
-	uint32_t startTime = millis();
-	while (!Serial && millis() - startTime < timeout) {
-		continue;
-	}
+	// uint32_t timeout = 1000;
+	// uint32_t startTime = millis();
+	// while (!Serial && millis() - startTime < timeout) {
+	// 	continue;
+	// }
 	Serial.println();
 
-	digitalWrite(power4hubPin, LOW); // do this to force motors to reset and home
 	setupPins();
+	digitalWrite(power4hubPin, LOW); // do this to force motors to reset and home upon reboot
 	// delay(100); // necessary to wait a sec for CCIO digitalRead to work
 	delay(2000);
 	digitalWrite(power4hubPin, HIGH);
@@ -204,6 +208,8 @@ void setup() {
 	// code execution until the cycles are complete.
 	// CcioMgr.PinByIndex(CLEARCORE_PIN_CCIOA5)->OutputPulsesStart(100, 200, 20, true);
 }
+// fault behavior: should pause, turn off green mast light, start flashing red light until e-stop is (pressed) and released. Then cut red light, turn yellow light on, re-enable motors, wait for them to stop moving to their last commanded positions, yellow off, and green back on.
+// want to 
 
 void loop() {
 	digitalWrite(redMastPin, !digitalRead(EstopPin));
@@ -227,6 +233,8 @@ void loop() {
 void clampManager() {
 
 }
+
+
 
 void drillSashEnd1() {
 	int Yoffset1 = 240; // DMM from Y home to middle of hardware track
@@ -408,7 +416,6 @@ void spindleTest() {
 
 }
 
-// TODO change to DMM/s
 /*------------------------------------------------------------------------------
  * XMoveAtVelocity
  *
@@ -427,11 +434,11 @@ bool XMoveAtVelocity(int velocityDMM) {
 	if (Xaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("X Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsX();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsX();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("X Move canceled.");
 		Serial.println();
 		return false;
@@ -453,71 +460,6 @@ bool XMoveAtVelocity(int velocityDMM) {
 	Serial.println("At Speed");
 	return true;
 }
-// bool YMoveAtVelocity(int velocity) {
-// 	// Check if a motor alert is currently preventing motion
-// 	// Clear alert if configured to do so
-// 	if (Yaxis.StatusReg().bit.AlertsPresent) {
-// 		Serial.println("Y Motor alert detected.");
-// 		PrintAlerts();
-// 		if (HANDLE_ALERTS) {
-// 			HandleAlertsY();
-// 		} else {
-// 			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-// 		}
-// 		Serial.println("Y Move canceled.");
-// 		Serial.println();
-// 		return false;
-// 	}
-
-// 	Serial.print("Y Moving at velocity: ");
-// 	Serial.println(velocity);
-
-// 	// Command the velocity move
-// 	Yaxis.MoveVelocity(velocity);
-
-// 	// Waits for the step command to ramp up/down to the commanded velocity.
-// 	// This time will depend on your Acceleration Limit.
-// 	Serial.println("Ramping to speed...");
-// 	while (!Yaxis.StatusReg().bit.AtTargetVelocity) {
-// 		continue;
-// 	}
-
-// 	Serial.println("At Speed");
-// 	return true;
-// }
-// bool ZMoveAtVelocity(int velocity) {
-// 	// Check if a motor alert is currently preventing motion
-// 	// Clear alert if configured to do so
-// 	if (Zaxis.StatusReg().bit.AlertsPresent) {
-// 		Serial.println("Z Motor alert detected.");
-// 		PrintAlerts();
-// 		if (HANDLE_ALERTS) {
-// 			HandleAlertsZ();
-// 		} else {
-// 			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-// 		}
-// 		Serial.println("Z Move canceled.");
-// 		Serial.println();
-// 		return false;
-// 	}
-
-// 	Serial.print("Z Moving at velocity: ");
-// 	Serial.println(velocity);
-
-// 	// Command the velocity move
-// 	Zaxis.MoveVelocity(velocity);
-
-// 	// Waits for the step command to ramp up/down to the commanded velocity.
-// 	// This time will depend on your Acceleration Limit.
-// 	Serial.println("Ramping to speed...");
-// 	while (!Zaxis.StatusReg().bit.AtTargetVelocity) {
-// 		continue;
-// 	}
-
-// 	Serial.println("At Speed");
-// 	return true;
-// }
-//------------------------------------------------------------------------------
 
 
 // move functions now take DMM units
@@ -541,11 +483,11 @@ bool XMoveDistance(int distanceDMM) { // not for use for precise positioning due
 	if (Xaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("X Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsX();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsX();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("X Move canceled.");
 		Serial.println();
 		return false;
@@ -567,11 +509,11 @@ bool XMoveDistance(int distanceDMM) { // not for use for precise positioning due
 	if (Xaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsX();
-		} else {
-			Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsX();
+		// } else {
+		// 	Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Motion may not have completed as expected. Proceed with caution.");
 		Serial.println();
 		return false;
@@ -580,6 +522,7 @@ bool XMoveDistance(int distanceDMM) { // not for use for precise positioning due
 		return true;
 	}
 }
+// maybe I don't even need these functions if they'll be stripped down to just Yaxis.Move(distance);
 bool YMoveDistance(int distanceDMM) {
 	int distance = distanceDMM*Y_STEPS_PER_DMM;
 	// Check if a motor alert is currently preventing motion
@@ -587,11 +530,11 @@ bool YMoveDistance(int distanceDMM) {
 	if (Yaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Y Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsY();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsY();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Y Move canceled.");
 		Serial.println();
 		return false;
@@ -613,11 +556,11 @@ bool YMoveDistance(int distanceDMM) {
 	if (Yaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsY();
-		} else {
-			Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsY();
+		// } else {
+		// 	Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Motion may not have completed as expected. Proceed with caution.");
 		Serial.println();
 		return false;
@@ -633,11 +576,11 @@ bool ZMoveDistance(int distanceDMM) {
 	if (Zaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Z Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsZ();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsZ();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Z Move canceled.");
 		Serial.println();
 		return false;
@@ -659,11 +602,11 @@ bool ZMoveDistance(int distanceDMM) {
 	if (Zaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsZ();
-		} else {
-			Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsZ();
+		// } else {
+		// 	Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Motion may not have completed as expected. Proceed with caution.");
 		Serial.println();
 		return false;
@@ -697,11 +640,11 @@ bool XMoveAbsolutePosition(int positionDMM) {
 	if (motorFaultPresent()) {
 		Serial.println("X Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsX();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsX();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("X Move canceled.");
 		Serial.println();
 		return false;
@@ -723,11 +666,11 @@ bool XMoveAbsolutePosition(int positionDMM) {
 	if (Xaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("X Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsX();
-		} else {
-			Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsX();
+		// } else {
+		// 	Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Motion may not have completed as expected. Proceed with caution.");
 		Serial.println();
 		return false;
@@ -736,6 +679,8 @@ bool XMoveAbsolutePosition(int positionDMM) {
 		return true;
 	}
 }
+// TODO: add logic to park Z axis if necessary to avoid breaking the bit off
+// like "safe" zones?
 bool YMoveAbsolutePosition(int positionDMM) {
 	int position = positionDMM*Y_STEPS_PER_DMM;
 	// Check if a motor alert is currently preventing motion
@@ -743,11 +688,11 @@ bool YMoveAbsolutePosition(int positionDMM) {
 	if (Yaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Y Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsY();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsY();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Y Move canceled.");
 		Serial.println();
 		return false;
@@ -769,11 +714,11 @@ bool YMoveAbsolutePosition(int positionDMM) {
 	if (Yaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Y Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsY();
-		} else {
-			Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsY();
+		// } else {
+		// 	Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Motion may not have completed as expected. Proceed with caution.");
 		Serial.println();
 		return false;
@@ -789,11 +734,11 @@ bool ZMoveAbsolutePosition(int positionDMM) {
 	if (Zaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Z Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsZ();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsZ();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Z Move canceled.");
 		Serial.println();
 		return false;
@@ -815,11 +760,11 @@ bool ZMoveAbsolutePosition(int positionDMM) {
 	if (Zaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Z Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsZ();
-		} else {
-			Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsZ();
+		// } else {
+		// 	Serial.println("Enable automatic fault handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Motion may not have completed as expected. Proceed with caution.");
 		Serial.println();
 		return false;
@@ -906,10 +851,20 @@ void PrintAlerts() { // handles all motors
 }
 //------------------------------------------------------------------------------
 
-// somewhere: if(motorFaultPresent) {MotionState = PAUSED_MOTOR_FAULT;}
+/*------------------------------------------------------------------------------
+ * HandleAlertsZ
+ *
+ *    Checks status registers for present alerts
+ *
+ * Parameters:
+ *    none
+ *
+ * Returns: 
+ *    True if any motors have a fault
+ */
 bool motorFaultPresent() {
 	return Xaxis.StatusReg().bit.AlertsPresent || Yaxis.StatusReg().bit.AlertsPresent || Zaxis.StatusReg().bit.AlertsPresent;
-}
+} // somewhere: if(motorFaultPresent) {MotionState = PAUSED_MOTOR_FAULT;}
 // should move this stuff to function for clearing an alert
 /*------------------------------------------------------------------------------
  * HandleAlertsX
@@ -987,20 +942,31 @@ void HandleAlertsZ() {
 	Serial.println("Clearing alerts.");
 	Zaxis.ClearAlerts();
 }
-//------------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
+ * readAirPressure
+ *
+ *    Polls ADC for voltage, converts to pressure in psi
+ *		Updates manifoldPressure variable
+ *
+ * Parameters:
+ *    none
+ *
+ * Returns: 
+ *    Manifold pressure in psi
+ */
 double readAirPressure() {
 	// int adcResult = analogRead(manifoldPressurePin);
 	// double inputVoltage = 10.0 * adcResult / ((1 << adcResolution) - 1);
 	double inputVoltage = analogRead(manifoldPressurePin, MILLIVOLTS) / 1000.0;
 	// reads <2V@0psi, 4.5V@30psi, 7.1V@60psi, 9.8V@100psi
 	// double manifoldPressure = map(inputVoltage, 4.50, 7.10, 30.00, 60.00);
-	double manifoldPressure = (inputVoltage - 4.50) * (60.0 - 30.0) / (7.10 - 4.50) + 30.0;
+	manifoldPressure = (inputVoltage - 4.50) * (60.0 - 30.0) / (7.10 - 4.50) + 30.0;
 	if (inputVoltage < 2) {
 		manifoldPressure = 0;
 	}
-	Serial.print("Manifold pressure: ");
-	Serial.print(manifoldPressure, 1);
-	Serial.println(" psi");
+	// Serial.print("Manifold pressure: ");
+	// Serial.print(manifoldPressure, 1);
+	// Serial.println(" psi");
 	return manifoldPressure;
 }
 void setupMotors() {
@@ -1061,11 +1027,11 @@ void enableX() {
 	if (Xaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsX();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsX();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Enabling may not have completed as expected. Proceed with caution.");
 		Serial.println();
 	} else {
@@ -1089,11 +1055,11 @@ void homeY() {
 	if (Yaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsZ();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsZ();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Enabling may not have completed as expected. Proceed with caution.");
 		Serial.println();
 	} else {
@@ -1117,11 +1083,11 @@ void homeZ() {
 	if (Zaxis.StatusReg().bit.AlertsPresent) {
 		Serial.println("Motor alert detected.");
 		PrintAlerts();
-		if (HANDLE_ALERTS) {
-			HandleAlertsY();
-		} else {
-			Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-		}
+		// if (HANDLE_ALERTS) {
+		// 	HandleAlertsY();
+		// } else {
+		// 	Serial.println("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
+		// }
 		Serial.println("Enabling may not have completed as expected. Proceed with caution.");
 		Serial.println();
 	} else {
