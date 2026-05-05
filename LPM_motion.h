@@ -5,8 +5,12 @@
 
 enum class MotionPollResult : uint8_t { InProgress, Complete, Faulted };
 
+inline bool axisMotionFault(MotorDriver& m) {
+	return m.StatusReg().bit.AlertsPresent || m.AlertReg().bit.MotorFaulted;
+}
+
 inline MotionPollResult pollAxisMoveComplete(MotorDriver& axis) {
-	if (axis.StatusReg().bit.AlertsPresent) {
+	if (axisMotionFault(axis)) {
 		return MotionPollResult::Faulted;
 	}
 	if (axis.StepsComplete() && axis.HlfbState() == MotorDriver::HLFB_ASSERTED) {
@@ -16,7 +20,7 @@ inline MotionPollResult pollAxisMoveComplete(MotorDriver& axis) {
 }
 
 inline bool axisHasAlert(MotorDriver& axis) {
-	return axis.StatusReg().bit.AlertsPresent;
+	return axisMotionFault(axis);
 }
 
 bool motorFaultPresent();
@@ -25,7 +29,7 @@ inline bool XMoveAbsoluteStartCounts(int32_t positionCounts) {
 	if (motorFaultPresent()) {
 		return false;
 	}
-	if (Xaxis.StatusReg().bit.AlertsPresent) {
+	if (axisMotionFault(Xaxis)) {
 		return false;
 	}
 	Xaxis.Move(positionCounts, MotorDriver::MOVE_TARGET_ABSOLUTE);
@@ -36,7 +40,7 @@ inline bool YMoveAbsoluteStartCounts(int32_t positionCounts) {
 	if (motorFaultPresent()) {
 		return false;
 	}
-	if (Yaxis.StatusReg().bit.AlertsPresent) {
+	if (axisMotionFault(Yaxis)) {
 		return false;
 	}
 	Yaxis.Move(positionCounts, MotorDriver::MOVE_TARGET_ABSOLUTE);
@@ -47,7 +51,7 @@ inline bool ZMoveAbsoluteStartCounts(int32_t positionCounts) {
 	if (motorFaultPresent()) {
 		return false;
 	}
-	if (Zaxis.StatusReg().bit.AlertsPresent) {
+	if (axisMotionFault(Zaxis)) {
 		return false;
 	}
 	Zaxis.Move(positionCounts, MotorDriver::MOVE_TARGET_ABSOLUTE);
@@ -58,7 +62,7 @@ inline bool XMoveDistanceStartCounts(int32_t distanceCounts) {
 	if (motorFaultPresent()) {
 		return false;
 	}
-	if (Xaxis.StatusReg().bit.AlertsPresent) {
+	if (axisMotionFault(Xaxis)) {
 		return false;
 	}
 	Xaxis.Move(distanceCounts);
@@ -69,7 +73,7 @@ inline bool ZMoveDistanceStartCounts(int32_t distanceCounts) {
 	if (motorFaultPresent()) {
 		return false;
 	}
-	if (Zaxis.StatusReg().bit.AlertsPresent) {
+	if (axisMotionFault(Zaxis)) {
 		return false;
 	}
 	Zaxis.Move(distanceCounts);
@@ -80,7 +84,7 @@ inline bool YMoveDistanceStartCounts(int32_t distanceCounts) {
 	if (motorFaultPresent()) {
 		return false;
 	}
-	if (Yaxis.StatusReg().bit.AlertsPresent) {
+	if (axisMotionFault(Yaxis)) {
 		return false;
 	}
 	Yaxis.Move(distanceCounts);

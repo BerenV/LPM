@@ -166,10 +166,28 @@ static bool motionAllowed() {
 	return motionState == MotionState::IDLE || motionState == MotionState::MOVING;
 }
 
+static bool bypassPressureForBeam1Commissioning() {
+#if !LPM_ALLOW_LOW_AIR_DURING_BEAM1_FEED
+	return false;
+#else
+	return phase == MachinePhase::CommissionFeedX || phase == MachinePhase::ClampingRun
+	       || phase == MachinePhase::RoughSetRef;
+#endif
+}
+
 static void stopAllAxesSmooth() {
 	Xaxis.MoveStopAbrupt();
 	Yaxis.MoveStopAbrupt();
 	Zaxis.MoveStopAbrupt();
+}
+
+static bool allAxesHlfbAsserted() {
+	if (axisMotionFault(Xaxis) || axisMotionFault(Yaxis) || axisMotionFault(Zaxis)) {
+		return false;
+	}
+	return Xaxis.HlfbState() == MotorDriver::HLFB_ASSERTED
+	       && Yaxis.HlfbState() == MotorDriver::HLFB_ASSERTED
+	       && Zaxis.HlfbState() == MotorDriver::HLFB_ASSERTED;
 }
 
 static bool debouncedBeamChange(bool current, bool initial, uint32_t stableNeededMs) {
@@ -869,9 +887,10 @@ void machineInit() {
 
 void supervisorTick() {
 	digitalWrite(redMastPin, !digitalRead(EstopPin));
-	readAirPressure();
 
 	static bool estopStopIssued = false;
+	static bool estopWasActive = false;
+
 	if (!digitalRead(EstopPin)) {
 		motionState = MotionState::PAUSED_ESTOP;
 		digitalWrite(greenMastPin, LOW);
@@ -879,9 +898,21 @@ void supervisorTick() {
 			stopAllAxesSmooth();
 			estopStopIssued = true;
 		}
+		estopWasActive = true;
 		return;
 	}
 	estopStopIssued = false;
+
+	// Teknic EStopConnector: after release, ClearAlerts() clears MotionCanceledSensorEStop;
+	// then wait for each axis HLFB (drives may be moving to last commanded position).
+	if (estopWasActive) {
+		Xaxis.ClearAlerts();
+		Yaxis.ClearAlerts();
+		Zaxis.ClearAlerts();
+		estopWasActive = false;
+		motionState = MotionState::RECOVERING_ESTOP;
+		digitalWrite(greenMastPin, LOW);
+	}
 
 	if (motorFaultPresent()) {
 		motionState = MotionState::PAUSED_MOTOR_FAULT;
@@ -893,16 +924,28 @@ void supervisorTick() {
 		digitalWrite(greenMastPin, HIGH);
 	}
 
-	if (manifoldPressure < g_pressureMinPsi) {
-		if (motionState != MotionState::PAUSED_PRESSURE) {
-			stopAllAxesSmooth();
+	if (motionState == MotionState::RECOVERING_ESTOP) {
+		if (allAxesHlfbAsserted()) {
+			motionState = MotionState::IDLE;
+			digitalWrite(greenMastPin, HIGH);
+		} else {
+			digitalWrite(greenMastPin, LOW);
+			return;
 		}
-		motionState = MotionState::PAUSED_PRESSURE;
-		digitalWrite(greenMastPin, LOW);
-		return;
 	}
 
-	if (motionState == MotionState::PAUSED_PRESSURE || motionState == MotionState::PAUSED_ESTOP) {
+	if (manifoldPressure < g_pressureMinPsi) {
+		if (!bypassPressureForBeam1Commissioning()) {
+			if (motionState != MotionState::PAUSED_PRESSURE) {
+				stopAllAxesSmooth();
+			}
+			motionState = MotionState::PAUSED_PRESSURE;
+			digitalWrite(greenMastPin, LOW);
+			return;
+		}
+	}
+
+	if (motionState == MotionState::PAUSED_PRESSURE) {
 		motionState = MotionState::IDLE;
 		digitalWrite(greenMastPin, HIGH);
 	}
@@ -952,7 +995,8 @@ void machineTick() {
 	case MachinePhase::CommissionFeedX:
 		if (!beam1EventArmed) {
 			beam1Initial = beam1();
-			Xaxis.MoveVelocity(LPM_COMMISSION_FEED_VELOCITY);
+			int32_t feedVel = (int32_t)LPM_COMMISSION_FEED_VELOCITY * (int32_t)LPM_COMMISSION_FEED_SIGN;
+			Xaxis.MoveVelocity(feedVel);
 			motionState = MotionState::MOVING;
 			beam1EventArmed = true;
 			debounceStableMs = 0;

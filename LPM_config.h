@@ -56,6 +56,21 @@
 #ifndef LPM_COMMISSION_FEED_VELOCITY
 #define LPM_COMMISSION_FEED_VELOCITY (1000 * 8)
 #endif
+// +1 or -1 — flip if the stick feeds the wrong way for your wiring/polarity
+#ifndef LPM_COMMISSION_FEED_SIGN
+#define LPM_COMMISSION_FEED_SIGN 1
+#endif
+
+// Abort X enable in setup if HLFB never asserts (disconnected motor, bad HLFB). 0 = no timeout.
+#ifndef LPM_X_ENABLE_TIMEOUT_MS
+#define LPM_X_ENABLE_TIMEOUT_MS 30000
+#endif
+
+// While 1, low manifold pressure does NOT pause motion until precision homing — avoids blocking
+// beam1 feed when pneumatics are off or sensor reads low during bench bring-up. Set 0 for production.
+#ifndef LPM_ALLOW_LOW_AIR_DURING_BEAM1_FEED
+#define LPM_ALLOW_LOW_AIR_DURING_BEAM1_FEED 1
+#endif
 
 // SD: use SD.begin() with no args (ClearCore board support package sets CS).
 
