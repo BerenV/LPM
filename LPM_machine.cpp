@@ -190,6 +190,16 @@ static bool allAxesHlfbAsserted() {
 	       && Zaxis.HlfbState() == MotorDriver::HLFB_ASSERTED;
 }
 
+static bool anyAxisStepping() {
+	return !Xaxis.StepsComplete() || !Yaxis.StepsComplete() || !Zaxis.StepsComplete();
+}
+
+static void syncMotionStateToAxes() {
+	if (motionState == MotionState::IDLE || motionState == MotionState::MOVING) {
+		motionState = anyAxisStepping() ? MotionState::MOVING : MotionState::IDLE;
+	}
+}
+
 static bool debouncedBeamChange(bool current, bool initial, uint32_t stableNeededMs) {
 	if (current != initial) {
 		if (debounceStableMs == 0) {
@@ -1114,4 +1124,6 @@ void machineTick() {
 		}
 		break;
 	}
+
+	syncMotionStateToAxes();
 }
