@@ -16,20 +16,20 @@
 #define Y_HOME_OFFSET 200                  // in counts, from home to edge of drive rollers
 #define LASER1_OFFSET 640                  // in counts
 // #define SPINDLE_CURR 2000 // 20mA, full speed
-#define SPINDLE_CURR 1300
-#define DRILL_Z_VELOCITY 500  // counts per second
+#define SPINDLE_CURR 900
+#define DRILL_Z_VELOCITY 400  // counts per second
 #define Z_PARK -50            // DMM
 
 #define Yoffset1 240  // DMM from Y home to middle of hardware track
-#define Zstart1 300
+#define Zstart1 310
 #define Zstop1 400
 #define Yoffset2 480  // other holes for pan head screws
-#define Zstart2 220
+#define Zstart2 230
 #define Zstop2 280
-#define hole1 570  // DMM from tip
-#define hole2 1070
-#define hole3 1070
-#define hole4 470
+#define hole1 565  // DMM from tip
+#define hole2 1065
+#define hole3 1065
+#define hole4 465
 #define Z_INTERMEDIATE_PARK 180  // to not collide when moving Y?
 
 
@@ -119,8 +119,8 @@ MotionState motionState = IDLE;
 #define beam1OffsetRev 9111
 // #define SASH_OFFSET 2513 // counts, laser broken to tip of sash
 // increasing absolute value of these will move holes closer to end of stick
-#define SASH_OFFSET 1885      // counts, tip of sash to beam 3
-#define REV_SASH_OFFSET -340  // counts, tip of sash to beam 2
+#define SASH_OFFSET 1890      // counts, tip of sash to beam 3
+#define REV_SASH_OFFSET -470  // counts, tip of sash to beam 2
 // laser 1 is first one, laser 2 is upper beam and laser 3 is lower beam
 // entering wheels to laser 1: 2848
 // laser 1 to tip at spindle center: 6837
@@ -245,13 +245,15 @@ void setup() {
 void loop() {
 	digitalWrite(redMastPin, !digitalRead(EstopPin));
 	homeStick();
-	CcioMgr.PinByIndex(yellowMastPin)->OutputPulsesStart(1000, 400, 0, false);  // yellow flashing
+	CcioMgr.PinByIndex(yellowMastPin)->OutputPulsesStart(800, 800, 0, false);  // yellow flashing
 	drillSashEnd1();
 	revHomeStick();
 	drillSashEndRev();
 	unclamp();
-	while (!beam2()) {
-		Xaxis.MoveVelocity(4000 * 8);
+	if (beam2()) {
+		while (beam2()) {
+			Xaxis.MoveVelocity(4000 * 8);
+		}
 	}
 	Xaxis.VelMax(2000 * 8);                                                  // safe speed? don't want to launch stick
 	XMoveDistance(1370 * 8);                                                 // should eject stick
@@ -351,24 +353,24 @@ void homeStick() {
 	if (beam1() || beam2() || beam3()) {  // stick is present, reverse
 		while (beam1() || beam2() || beam3()) { Xaxis.MoveVelocity(-1000 * 8); }
 	}
-	delay(500);  // lets stick retreat
+	delay(200);  // lets stick retreat
 	Xaxis.MoveStopAbrupt();
 	while (!beam1()) { Xaxis.MoveVelocity(1000 * 8); }
 	int firstBeam = Xaxis.PositionRefCommanded();
 	while ((Xaxis.PositionRefCommanded() - firstBeam) < beam1Offset) {}
 	clamp(2, 1);
-	Xaxis.MoveVelocity(1000 * 2);  // slow down
+	Xaxis.MoveVelocity(1000);  // slow down
 	// now do more precise homing with the third beam
 	while (!beam3()) {}
 	Xaxis.MoveStopAbrupt();
-	XMoveDistance(-50);
-	delay(200);
-	while (!beam3()) { Xaxis.MoveVelocity(20); }
+	XMoveDistance(-30);
+	delay(500);
+	while (!beam3()) { Xaxis.MoveVelocity(10); }
 	Xaxis.MoveStopAbrupt();
-	delay(1000);
+	// delay(1000); // this does nothing since the potition counter won't be changing
 	Xaxis.PositionRefSet(SASH_OFFSET);  // update internal position counter
-	                                    // XMoveAbsolutePosition(0);
-	                                    // delay(5000);
+	// XMoveAbsolutePosition(0);
+	// delay(5000);
 
 	// if (digitalRead(beam2Pin)) {
 	// 	while (digitalRead(beam2Pin)) { // TODO: make use of InputRisen() or fallen
@@ -404,25 +406,57 @@ void revHomeStick() {
 	clamp(3, 1);
 	delay(200);
 	clamp(2, 0);
-	Xaxis.MoveVelocity(1000 * 8);
-	if (beam1()) {
-		while (beam1()) { delay(1); }  // assumes beam 1 will be broken... doesn't work for short sticks
-		int firstBeam = Xaxis.PositionRefCommanded();
-		while ((Xaxis.PositionRefCommanded() - firstBeam) < (beam1OffsetRev - 500)) { delay(1); }
-		Xaxis.MoveVelocity(1000);  // slow down
+	if (beam1()) { // fast traverse
+		Xaxis.MoveVelocity(2000 * 8);
+		while (beam1()) { delay(1); }
+		int firstBeam = Xaxis.PositionRefCommanded(); // where end of stick just passed beam1
+		while (abs(Xaxis.PositionRefCommanded() - firstBeam) < (beam1OffsetRev - 2000)) { delay(1); }
+		Xaxis.MoveVelocity(2000);  // slow down
 	}
+	Serial.print("beam2 (1): "); // expected value is in parentheses
+	Serial.println(beam2());
 	// now do more precise homing with beam 2
-	while (beam2()) { delay(1); }
+	if (beam2()) { // what if not?
+		Serial.println("beam 2 broken, so moving forward till it's not");
+		Xaxis.MoveVelocity(2000);  // slow down
+		while (beam2()) { delay(1); }
+	}
+	else { // retreat until beam2 is broken
+	Serial.println("retreating");
+		Xaxis.MoveVelocity(-2000);
+		while (!beam2()) { delay(1); }
+		delay(500);
+		Xaxis.MoveVelocity(2000);
+		while (beam2()) { delay(1); }
+	}
+	// Xaxis.MoveVelocity(0);
+	Serial.print("beam2 (0): ");
+	Serial.println(beam2());
+	Xaxis.MoveStopAbrupt(); // stop when beam is not broken
+	Serial.println("stopped");
+	delay(500);
+	Xaxis.MoveVelocity(-100);
+	while (!beam2()) { delay(1); }
+	delay(50);
 	Xaxis.MoveStopAbrupt();
-	XMoveDistance(-50);
-	delay(200);
+	// XMoveDistance(-150); // no idea why we have to go back so much farther on revhome
+	Serial.print("beam2 (1): ");
+	Serial.println(beam2());
+	Serial.println("moved back until beam was broken??");
+	delay(500);
+	Serial.println("creeping forward");
 	Xaxis.MoveVelocity(20);
+	Serial.print("beam2 (1): ");
+	Serial.println(beam2());
 	while (beam2()) { delay(1); }
 	Xaxis.MoveStopAbrupt();
-	delay(1000);
+	Serial.print("beam2 (0): ");
+	Serial.println(beam2());
+	Serial.println("setting rev_offset");
+	// delay(1000); // this does nothing
 	Xaxis.PositionRefSet(REV_SASH_OFFSET);  // update internal position counter
-	                                        // XMoveAbsolutePosition(0);
-	                                        // delay(5000);
+	// XMoveAbsolutePosition(0);
+	// delay(5000);
 
 	// while (digitalRead(beam2Pin)) {
 	// 	Xaxis.MoveVelocity(1000*8);
