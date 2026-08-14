@@ -12,26 +12,60 @@
 #define Y_STEPS_PER_DMM 16
 #define X_STEPS_PER_DMM 2.67346886         // 6400/(3*254*pi)	 fine tune this value for accuracy
 #define TOOL_OFFSET 250 * Z_STEPS_PER_DMM  // tip of tool to collet
-#define Z_HOME_OFFSET 11410                // in counts, from home to collet lined up with lower rollers
-#define Y_HOME_OFFSET 200                  // in counts, from home to edge of drive rollers
+#define Z_HOME_OFFSET 11219                // in counts, from home to collet lined up with lower rollers
+#define Y_HOME_OFFSET 950                  // in counts, from home to edge of drive rollers
 #define LASER1_OFFSET 640                  // in counts
+// max travel for Y is 48,750 counts, Z is 17,185 counts
 // #define SPINDLE_CURR 2000 // 20mA, full speed
-#define SPINDLE_CURR 900
-#define DRILL_Z_VELOCITY 400  // counts per second
+#define SPINDLE_CURR 700 // 5 mA is around 2400 rpm
+#define DRILL_Z_VELOCITY 350  // counts per second
 #define Z_PARK -50            // DMM
 
 #define Yoffset1 240  // DMM from Y home to middle of hardware track
 #define Zstart1 310
-#define Zstop1 400
+#define Zstop1 430
 #define Yoffset2 480  // other holes for pan head screws
 #define Zstart2 230
-#define Zstop2 280
+#define Zstop2 320 
 #define hole1 565  // DMM from tip
 #define hole2 1065
 #define hole3 1065
 #define hole4 465
 #define Z_INTERMEDIATE_PARK 180  // to not collide when moving Y?
 
+// SASH OFFSETS (everything in counts)
+#define beam1Offset 6837
+#define beam1OffsetRev 9092
+// #define SASH_OFFSET 2513 // counts, laser broken to tip of sash
+// increasing absolute value of these will move holes closer to end of stick
+#define SASH_OFFSET 1950      // counts, tip of sash to beam 3. decreasing this moves the holes closer to tip
+#define REV_SASH_OFFSET -377  // counts, tip of sash to beam 2
+// laser 1 is first one, laser 2 is upper beam and laser 3 is lower beam
+// entering wheels to laser 1: 2765
+// laser 1 to tip at spindle center: 6806 (used to be 6837) (difference +31)
+
+
+// ~~~~~~~~~~~~ old values ~~~~~~~~~~~~
+// tip at spindle center to laser 3: 1872
+// laser 3 to laser 2: 641
+// clamp 2 can come down as soon as tip is past spindle
+// clamp 3 down as soon as tip is 3315 counts past spindle (right before third wheels grip)
+// other end of stick at laser 1 to spindle center: 9111
+// other end of stick at laser 1 to clamp 2 raising: 5623
+// other end of stick at spindle center to beam 2: -450
+// other end of stick at laser 1 to laser 2: 8704
+// clamp 3 needs to raise as soon as tip is past spindle
+// beam 2 to beam 3: 684
+// beam 3 to stick leaving wheels: 9202
+
+// Define the initial velocity and acceleration limits
+int xVelLim = 3000 * 8;     // pulses per sec
+int xAccelLim = 10000 * 8;  // pulses per sec^2
+int yVelLim = 15000;        // pulses per sec
+int yAccelLim = 1000000;    // pulses per sec^2
+int zVelLim = 15000;        // pulses per sec
+int zAccelLim = 1000000;    // pulses per sec^2
+bool dir = 0;               // for spindle test
 
 //~~~~~~~~~ pin definitions ~~~~~~~~~
 // ClearCore local pins:
@@ -39,14 +73,14 @@
 #define power4hubPin CLEARCORE_PIN_IO1     // switches aux power to hub through relay, to allow forcing axes to home on startup
 // #define beam1Pin CLEARCORE_PIN_IO2 // TEMPORARY
 #define EstopPin CLEARCORE_PIN_A9              // connected to actual, normally closed, active low circuit
-#define spindle1RPMPin CLEARCORE_PIN_A10       // provides feedback on actual speed, RPM=2*P/N*60 where N=# poles, P=input freq (Hz)
+#define spindle1RPMPin CLEARCORE_PIN_A10       // provides feedback on actual speed, RPM=60/(N*P) where N=# poles (4), P=pulse length (s)
 #define manifoldPressurePin CLEARCORE_PIN_A12  // 4-20 mA corresponds to 0-100 psi
 uint8_t ccioBoardCount;                        // Store the number of connected CCIO-8 boards here.
 uint8_t ccioPinCount;                          // Store the number of connected CCIO-8 pins here.
 // first CCIO (control cabinet):
 // #define eStoppedPin CLEARCORE_PIN_CCIOA0 // future momentary button (lighted?) on eStop box
 #define spindleAlarmPin CLEARCORE_PIN_CCIOA1
-#define spindleEnPin CLEARCORE_PIN_CCIOA2
+#define spindle1EnPin CLEARCORE_PIN_CCIOA2
 #define spindleDirPin CLEARCORE_PIN_CCIOA3
 #define greenMastPin CLEARCORE_PIN_CCIOA4
 #define yellowMastPin CLEARCORE_PIN_CCIOA5
@@ -114,52 +148,8 @@ enum MotionState {
 };
 MotionState motionState = IDLE;
 
-// SASH OFFSETS (everything in counts)
-#define beam1Offset 6837
-#define beam1OffsetRev 9111
-// #define SASH_OFFSET 2513 // counts, laser broken to tip of sash
-// increasing absolute value of these will move holes closer to end of stick
-#define SASH_OFFSET 1890      // counts, tip of sash to beam 3
-#define REV_SASH_OFFSET -470  // counts, tip of sash to beam 2
-// laser 1 is first one, laser 2 is upper beam and laser 3 is lower beam
-// entering wheels to laser 1: 2848
-// laser 1 to tip at spindle center: 6837
-// tip at spindle center to laser 3: 1872
-// laser 3 to laser 2: 641
-// clamp 2 can come down as soon as tip is past spindle
-// clamp 3 down as soon as tip is 3315 counts past spindle (right before third wheels grip)
-// other end of stick at laser 1 to spindle center: 9111
-// other end of stick at laser 1 to clamp 2 raising: 5623
-// other end of stick at spindle center to beam 2: -450
-// other end of stick at laser 1 to laser 2: 8704
-// clamp 3 needs to raise as soon as tip is past spindle
-// beam 2 to beam 3: 684
-// beam 3 to stick leaving wheels: 9202
-
-
-
-// This example has built-in functionality to automatically clear motor alerts,
-//	including motor shutdowns. Any uncleared alert will cancel and disallow motion.
-// WARNING: enabling automatic alert handling will clear alerts immediately when
-//	encountered and return a motor to a state in which motion is allowed. Before
-//	enabling this functionality, be sure to understand this behavior and ensure
-//	your system will not enter an unsafe state.
-// To enable automatic alert handling, #define HANDLE_ALERTS (1)
-// To disable automatic alert handling, #define HANDLE_ALERTS (0)
+// TODO: remove everything dependent on this
 #define HANDLE_ALERTS (0)
-
-// These will be used to format the text that is printed to the serial port.
-#define MAX_MSG_LEN 80
-char msg[MAX_MSG_LEN + 1];
-
-// Define the initial velocity and acceleration limits
-int xVelLim = 3000 * 8;     // pulses per sec
-int xAccelLim = 10000 * 8;  // pulses per sec^2
-int yVelLim = 15000;        // pulses per sec
-int yAccelLim = 1000000;    // pulses per sec^2
-int zVelLim = 15000;        // pulses per sec
-int zAccelLim = 1000000;    // pulses per sec^2
-bool dir = 0;               // for spindle test
 
 // Declares user-defined helper functions (prototypes).
 // The definition/implementations of these functions are at the bottom of the sketch.
@@ -203,7 +193,7 @@ void setup() {
 	// }
 	// Serial.println();
 
-	digitalWrite(power4hubPin, LOW);  // do this to force motors to reset and home
+	digitalWrite(power4hubPin, LOW);  // do this to force motors to reset and home when they're powered again
 	setupPins();
 	// delay(100); // necessary to wait a sec for CCIO digitalRead to work
 	delay(2000);
@@ -334,17 +324,17 @@ void drillPeck(int Zstart, int Zstop) {  // assumes spindle is already turning
 }
 
 void startSpindle() {
-	digitalWrite(spindleEnPin, LOW);
+	digitalWrite(spindle1EnPin, LOW);
 	analogWrite(spindleSpeedPin, 0, CURRENT);
 	digitalWrite(spindleDirPin, LOW);  // CW rotation
 	analogWrite(spindleSpeedPin, SPINDLE_CURR, CURRENT);
 	delay(100);
-	digitalWrite(spindleEnPin, HIGH);  // engage spindle drive
+	digitalWrite(spindle1EnPin, HIGH);  // engage spindle drive
 	delay(1000);
 }
 
 void stopSpindle() {
-	digitalWrite(spindleEnPin, LOW);
+	digitalWrite(spindle1EnPin, LOW);
 	delay(100);
 }
 
@@ -481,7 +471,7 @@ void revHomeStick() {
 void spindleTest() {
 	analogWrite(spindleSpeedPin, 0, CURRENT);
 	digitalWrite(spindleDirPin, dir);  // CW rotation
-	digitalWrite(spindleEnPin, HIGH);  // engage spindle drive
+	digitalWrite(spindle1EnPin, HIGH);  // engage spindle drive
 	delay(1000);
 	for (int i = 0; i < 2047; i++) {
 		analogWrite(spindleSpeedPin, i, CURRENT);
@@ -491,17 +481,17 @@ void spindleTest() {
 		analogWrite(spindleSpeedPin, i, CURRENT);
 		delay(3);
 	}
-	digitalWrite(spindleEnPin, LOW);  // disengage spindle drive
+	digitalWrite(spindle1EnPin, LOW);  // disengage spindle drive
 	// digitalWrite(spindleDirPin, HIGH); // CCW rotation
 	dir = !dir;  // flip state
-	             // digitalWrite(spindleEnPin, HIGH); // engage spindle drive
+	             // digitalWrite(spindle1EnPin, HIGH); // engage spindle drive
 	             // delay(2000);
 	             // for(int i=0; i<2047; i++) {
 	             // 	analogWrite(spindleSpeedPin, i, CURRENT);
 	             // 	delay(3);
 	             // }
 	             // delay(2000);
-	             // digitalWrite(spindleEnPin, LOW); // disengage spindle drive
+	             // digitalWrite(spindle1EnPin, LOW); // disengage spindle drive
 	             // delay(2000);
 
 	// while ((millis() % 10000) < 10) {
@@ -1066,7 +1056,8 @@ void setupMotors() {
 	Xaxis.EStopDecelMax(10000 * 8);
 	Yaxis.EStopDecelMax(1000000);
 	Zaxis.EStopDecelMax(1000000);
-	// reverse default direction on Y&Z axes
+	// reverse default direction on all axes
+	Xaxis.PolarityInvertSDDirection(true);
 	Yaxis.PolarityInvertSDDirection(true);
 	Zaxis.PolarityInvertSDDirection(true);
 
@@ -1176,6 +1167,9 @@ void setupPins() {
 	// that evaluates to 8.
 	ccioPinCount = ccioBoardCount * CCIO_PINS_PER_BOARD;
 	// Print the number of discovered CCIO-8 boards to the serial port.
+	// These will be used to format the text that is printed to the serial port.
+	int MAX_MSG_LEN = 80;
+	char msg[MAX_MSG_LEN + 1];
 	snprintf(msg, MAX_MSG_LEN, "Discovered %d CCIO-8 board", ccioBoardCount);
 	Serial.print(msg);
 
@@ -1213,7 +1207,7 @@ void setupPins() {
 	pinMode(greenMastPin, OUTPUT);
 	pinMode(spindleSpeedPin, OUTPUT);
 	pinMode(spindleDirPin, OUTPUT);
-	pinMode(spindleEnPin, OUTPUT);
+	pinMode(spindle1EnPin, OUTPUT);
 	pinMode(spindleAlarmPin, INPUT);
 	pinMode(EstopPin, INPUT);
 
